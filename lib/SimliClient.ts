@@ -121,8 +121,7 @@ class SimliClient {
         this.enableConsoleLogs = config.enableConsoleLogs ?? false;
         if (!config.SimliURL || config.SimliURL === "") {
             this.SimliURL = "s://api.simli.ai";
-        }
-        else {
+        } else {
             this.SimliURL = config.SimliURL;
         }
         if (typeof window !== "undefined") {
@@ -145,10 +144,10 @@ class SimliClient {
     private async getIceServers(attempt = 1): Promise<RTCIceServer[]> {
         try {
             const response: any = await Promise.race([
-                fetch(`http${this.SimliURL}/getIceServers`, {
-                    headers: { "Content-Type": "application/json" },
+                fetch(`${this.SimliURL}/getIceServers`, {
+                    headers: {"Content-Type": "application/json"},
                     method: "POST",
-                    body: JSON.stringify({ apiKey: this.apiKey }),
+                    body: JSON.stringify({apiKey: this.apiKey}),
                 }),
                 new Promise((_, reject) =>
                     setTimeout(() => reject(new Error("SIMLI: ICE server request timeout")), 5000)
@@ -174,7 +173,7 @@ class SimliClient {
             }
 
             if (this.enableConsoleLogs) console.log("SIMLI: Using fallback STUN server");
-            return [{ urls: ["stun:stun.l.google.com:19302"] }];
+            return [{urls: ["stun:stun.l.google.com:19302"]}];
         }
     }
 
@@ -260,14 +259,14 @@ class SimliClient {
 
             await this.createPeerConnection();
 
-            const parameters = { ordered: true };
+            const parameters = {ordered: true};
             this.dc = this.pc!.createDataChannel("chat", parameters);
 
             this.setupDataChannelListeners();
             this.setupConnectionStateHandler();
 
-            this.pc?.addTransceiver("audio", { direction: "recvonly" });
-            this.pc?.addTransceiver("video", { direction: "recvonly" });
+            this.pc?.addTransceiver("audio", {direction: "recvonly"});
+            this.pc?.addTransceiver("video", {direction: "recvonly"});
 
             await this.negotiate();
 
@@ -355,7 +354,7 @@ class SimliClient {
 
         try {
             const response = await fetch(
-                `http${this.SimliURL}/startAudioToVideoSession`,
+                `${this.SimliURL}/startAudioToVideoSession`,
                 {
                     method: "POST",
                     body: JSON.stringify(metadata),
@@ -398,7 +397,8 @@ class SimliClient {
                 throw new Error("SIMLI: Local description is null");
             }
 
-            const ws = new WebSocket(`ws${this.SimliURL}/StartWebRTCSession`);
+            const [protocol, baseUri] = this.getWebSocketUrl();
+            const ws = new WebSocket(`${protocol}://${baseUri}/StartWebRTCSession`);
             this.webSocket = ws;
 
             let wsConnectResolve: () => void;
@@ -407,7 +407,7 @@ class SimliClient {
             });
 
             ws.addEventListener("open", async () => {
-                await ws.send(JSON.stringify(this.pc?.localDescription));
+                ws.send(JSON.stringify(this.pc?.localDescription));
                 await this.initializeSession();
                 this.startDataChannelInterval();
                 wsConnectResolve();
@@ -592,8 +592,8 @@ class SimliClient {
             this.inputStreamTrack = stream;
             const audioContext: AudioContext = new (window.AudioContext ||
                 (window as any).webkitAudioContext)({
-                    sampleRate: 16000,
-                });
+                sampleRate: 16000,
+            });
             this.initializeAudioWorklet(audioContext, stream);
         } catch (error) {
             if (this.enableConsoleLogs) console.error("SIMLI: Failed to initialize audio stream:", error);
@@ -608,7 +608,7 @@ class SimliClient {
         audioContext.audioWorklet
             .addModule(
                 URL.createObjectURL(
-                    new Blob([AudioProcessor], { type: "application/javascript" })
+                    new Blob([AudioProcessor], {type: "application/javascript"})
                 )
             )
             .then(() => {
@@ -713,7 +713,15 @@ class SimliClient {
             errorReason: this.errorReason,
         };
     }
+
+    private getWebSocketUrl(): [string, string] {
+        let url = this.SimliURL;
+        const parsedUrl = new URL(url);
+        const baseUri = parsedUrl.host;
+        const protocol = url.startsWith('https') ? 'wss' : 'ws';
+        return [protocol, baseUri];
+    }
 }
 
-export { SimliClient, SimliClientConfig, SimliClientEvents };
+export {SimliClient, SimliClientConfig, SimliClientEvents};
 
