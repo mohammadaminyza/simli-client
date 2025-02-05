@@ -642,7 +642,7 @@ class SimliClient {
     getWebSocketUrl() {
         let url = this.SimliURL;
         const parsedUrl = new URL(url);
-        const baseUri = parsedUrl.host;
+        const baseUri = parsedUrl.host + parsedUrl.pathname;
         const protocol = url.startsWith('https') ? 'wss' : 'ws';
         return [protocol, baseUri];
     }
