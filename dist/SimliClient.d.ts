@@ -1,6 +1,5 @@
 interface SimliClientConfig {
-    apiKey: string;
-    faceID: string;
+    avatarId: string;
     handleSilence: boolean;
     maxSessionLength: number;
     maxIdleTime: number;
@@ -22,8 +21,7 @@ declare class SimliClient {
     private dcInterval;
     private candidateCount;
     private prevCandidateCount;
-    private apiKey;
-    private faceID;
+    private avatarId;
     private handleSilence;
     private videoRef;
     private audioRef;

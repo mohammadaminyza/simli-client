@@ -33,8 +33,7 @@ type EventCallback = (...args: any[]) => void;
 type EventMap = Map<string, Set<EventCallback>>;
 
 interface SimliClientConfig {
-    apiKey: string;
-    faceID: string;
+    avatarId: string;
     handleSilence: boolean;
     maxSessionLength: number;
     maxIdleTime: number;
@@ -58,8 +57,7 @@ class SimliClient {
     private dcInterval: NodeJS.Timeout | null = null;
     private candidateCount: number = 0;
     private prevCandidateCount: number = -1;
-    private apiKey: string = "";
-    private faceID: string = "";
+    private avatarId: string = "";
     private handleSilence: boolean = true;
     private videoRef: HTMLVideoElement | null = null;
     private audioRef: HTMLAudioElement | null = null;
@@ -113,8 +111,7 @@ class SimliClient {
     }
 
     public Initialize(config: SimliClientConfig) {
-        this.apiKey = config.apiKey;
-        this.faceID = config.faceID;
+        this.avatarId = config.avatarId;
         this.handleSilence = config.handleSilence;
         this.maxSessionLength = config.maxSessionLength;
         this.maxIdleTime = config.maxIdleTime;
@@ -147,7 +144,6 @@ class SimliClient {
                 fetch(`${this.SimliURL}/getIceServers`, {
                     headers: {"Content-Type": "application/json"},
                     method: "POST",
-                    body: JSON.stringify({apiKey: this.apiKey}),
                 }),
                 new Promise((_, reject) =>
                     setTimeout(() => reject(new Error("SIMLI: ICE server request timeout")), 5000)
@@ -343,9 +339,8 @@ class SimliClient {
 
     private async initializeSession() {
         const metadata = {
-            faceId: this.faceID,
+            avatarId: this.avatarId,
             isJPG: false,
-            apiKey: this.apiKey,
             syncAudio: true,
             handleSilence: this.handleSilence,
             maxSessionLength: this.maxSessionLength,
