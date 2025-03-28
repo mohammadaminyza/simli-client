@@ -8,6 +8,17 @@ interface SimliClientConfig {
     enableConsoleLogs?: boolean;
     SimliURL: string | "";
 }
+interface SimliSessionRequest {
+    avatarId: string;
+    isJPG: boolean;
+    syncAudio: boolean;
+    handleSilence: boolean;
+    maxSessionLength: number;
+    maxIdleTime: number;
+}
+interface SimliSessionToken {
+    session_token: string;
+}
 interface SimliClientEvents {
     connected: () => void;
     disconnected: () => void;
@@ -22,6 +33,7 @@ declare class SimliClient {
     private candidateCount;
     private prevCandidateCount;
     private avatarId;
+    private session_token;
     private handleSilence;
     private videoRef;
     private audioRef;
@@ -48,16 +60,17 @@ declare class SimliClient {
     off<K extends keyof SimliClientEvents>(event: K, callback: SimliClientEvents[K]): void;
     private emit;
     Initialize(config: SimliClientConfig): void;
-    private getIceServers;
+    getIceServers(attempt?: number): Promise<RTCIceServer[]>;
     private createPeerConnection;
     private setupPeerConnectionListeners;
     private setupConnectionStateHandler;
-    start(retryAttempt?: number): Promise<void>;
+    start(iceServers?: RTCIceServer[], retryAttempt?: number): Promise<void>;
     private setupDataChannelListeners;
     private startDataChannelInterval;
     private stopDataChannelInterval;
     private sendPingMessage;
-    private initializeSession;
+    createSessionToken(metadata: SimliSessionRequest): Promise<SimliSessionToken>;
+    private sendSessionToken;
     private negotiate;
     private waitForIceGathering;
     private handleConnectionFailure;
@@ -67,8 +80,8 @@ declare class SimliClient {
     private clearTimeouts;
     listenToMediastreamTrack(stream: MediaStreamTrack): void;
     private initializeAudioWorklet;
-    sendAudioData(audioData: Uint8Array): void;
-    close(): void;
+    sendAudioData(audioData: Uint8Array): Promise<void>;
+    close(): Promise<void>;
     ClearBuffer: () => void;
     isConnected(): boolean;
     getConnectionStatus(): {
@@ -77,6 +90,7 @@ declare class SimliClient {
         peerConnectionState: RTCPeerConnectionState | null;
         errorReason: string | null;
     };
+    private setupWebSocketListeners;
     private getWebSocketUrl;
 }
 export { SimliClient, SimliClientConfig, SimliClientEvents };

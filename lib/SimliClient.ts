@@ -43,6 +43,19 @@ interface SimliClientConfig {
     SimliURL: string | "";
 }
 
+interface SimliSessionRequest {
+    avatarId: string;
+    isJPG: boolean;
+    syncAudio: boolean;
+    handleSilence: boolean;
+    maxSessionLength: number;
+    maxIdleTime: number;
+}
+
+interface SimliSessionToken {
+    session_token: string
+}
+
 interface SimliClientEvents {
     connected: () => void;
     disconnected: () => void;
@@ -58,6 +71,7 @@ class SimliClient {
     private candidateCount: number = 0;
     private prevCandidateCount: number = -1;
     private avatarId: string = "";
+    private session_token: string = "";
     private handleSilence: boolean = true;
     private videoRef: HTMLVideoElement | null = null;
     private audioRef: HTMLAudioElement | null = null;
@@ -111,13 +125,17 @@ class SimliClient {
     }
 
     public Initialize(config: SimliClientConfig) {
+        if (!config.avatarId || config.avatarId === "") {
+            console.error("SIMLI: avatar id is required in config");
+            throw new Error("avatar id is required in config");
+        }
         this.avatarId = config.avatarId;
         this.handleSilence = config.handleSilence;
         this.maxSessionLength = config.maxSessionLength;
         this.maxIdleTime = config.maxIdleTime;
         this.enableConsoleLogs = config.enableConsoleLogs ?? false;
         if (!config.SimliURL || config.SimliURL === "") {
-            this.SimliURL = "s://api.simli.ai";
+            this.SimliURL = "https://api.simli.ai";
         } else {
             this.SimliURL = config.SimliURL;
         }
@@ -130,7 +148,7 @@ class SimliClient {
             if (!(this.audioRef instanceof HTMLAudioElement)) {
                 console.error("SIMLI: audioRef is required in config as HTMLAudioElement");
             }
-            console.log("SIMLI: simli-client@1.2.6 initialized");
+            console.log("SIMLI: simli-client@1.2.8 initialized");
         } else {
             console.warn(
                 "SIMLI: Running in Node.js environment. Some features may not be available."
@@ -138,7 +156,7 @@ class SimliClient {
         }
     }
 
-    private async getIceServers(attempt = 1): Promise<RTCIceServer[]> {
+    public async getIceServers(attempt = 1): Promise<RTCIceServer[]> {
         try {
             const response: any = await Promise.race([
                 fetch(`${this.SimliURL}/getIceServers`, {
@@ -173,10 +191,10 @@ class SimliClient {
         }
     }
 
-    private async createPeerConnection() {
+    private async createPeerConnection(iceServers: RTCIceServer[] = []) {
         const config = {
             sdpSemantics: "unified-plan",
-            iceServers: await this.getIceServers(),
+            iceServers: iceServers,
         };
         if (this.enableConsoleLogs) console.log("SIMLI: Server running: ", config.iceServers);
 
@@ -228,32 +246,40 @@ class SimliClient {
         if (!this.pc) return;
 
         this.pc.addEventListener("connectionstatechange", () => {
+            if (this.enableConsoleLogs) console.log("SIMLI: Connection state changed to:", this.pc?.connectionState);
+
             switch (this.pc?.connectionState) {
                 case "connected":
                     this.clearTimeouts();
                     break;
                 case "failed":
                 case "closed":
+                    this.emit("disconnected");
                     this.emit("failed", "Connection failed or closed");
                     this.cleanup();
                     break;
                 case "disconnected":
+                    this.emit("disconnected");
                     this.handleDisconnection();
                     break;
             }
         });
     }
 
-    async start(retryAttempt = 1): Promise<void> {
+    async start(
+        iceServers: RTCIceServer[] = [], retryAttempt = 1
+    ): Promise<void> {
         try {
             this.clearTimeouts();
 
             // Set overall connection timeout
             this.connectionTimeout = setTimeout(() => {
-                this.handleConnectionTimeout();
+                this.handleConnectionTimeout().then().catch(console.error);
             }, this.CONNECTION_TIMEOUT_MS);
-
-            await this.createPeerConnection();
+            if (iceServers.length === 0) {
+                iceServers = await this.getIceServers()
+            }
+            await this.createPeerConnection(iceServers);
 
             const parameters = {ordered: true};
             this.dc = this.pc!.createDataChannel("chat", parameters);
@@ -277,7 +303,7 @@ class SimliClient {
                 if (this.enableConsoleLogs) console.log(`SIMLI: Retrying connection... Attempt ${retryAttempt + 1}`);
                 await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY));
                 await this.cleanup();
-                return this.start(retryAttempt + 1);
+                return this.start(iceServers, retryAttempt + 1);
             }
 
             this.emit("failed", `Failed to connect after ${this.MAX_RETRY_ATTEMPTS} attempts`);
@@ -296,6 +322,7 @@ class SimliClient {
 
         this.dc.addEventListener("error", (error) => {
             if (this.enableConsoleLogs) console.error("SIMLI: Data channel error:", error);
+            this.emit("disconnected");
             this.handleConnectionFailure("Data channel error");
         });
     }
@@ -314,7 +341,7 @@ class SimliClient {
         }
     }
 
-    private sendPingMessage() {
+    private async sendPingMessage() {
         if (this.webSocket && this.webSocket.readyState === this.webSocket.OPEN) {
             const message = "ping " + Date.now();
             this.pingSendTimes.set(message, Date.now());
@@ -323,7 +350,7 @@ class SimliClient {
             } catch (error) {
                 if (this.enableConsoleLogs) console.error("SIMLI: Failed to send message:", error);
                 this.stopDataChannelInterval();
-                this.handleConnectionFailure("Failed to send ping message");
+                await this.handleConnectionFailure("Failed to send ping message");
             }
         } else {
             if (this.enableConsoleLogs) console.warn(
@@ -337,16 +364,7 @@ class SimliClient {
         }
     }
 
-    private async initializeSession() {
-        const metadata = {
-            avatarId: this.avatarId,
-            isJPG: false,
-            syncAudio: true,
-            handleSilence: this.handleSilence,
-            maxSessionLength: this.maxSessionLength,
-            maxIdleTime: this.maxIdleTime,
-        };
-
+    public async createSessionToken(metadata: SimliSessionRequest): Promise<SimliSessionToken> {
         try {
             const response = await fetch(
                 `${this.SimliURL}/startAudioToVideoSession`,
@@ -365,13 +383,22 @@ class SimliClient {
             }
 
             const resJSON = await response.json();
+            return resJSON;
+        } catch (error) {
+            await this.handleConnectionFailure(`Session initialization failed: ${error}`);
+            throw error;
+        }
+    }
+
+    private async sendSessionToken(sessionToken: string) {
+        try {
             if (this.webSocket && this.webSocket.readyState === this.webSocket.OPEN) {
-                this.webSocket?.send(resJSON.session_token);
+                this.webSocket?.send(sessionToken);
             } else {
                 throw new Error("WebSocket not open when trying to send session token");
             }
         } catch (error) {
-            this.handleConnectionFailure(`Session initialization failed: ${error}`);
+            await this.handleConnectionFailure(`Session initialization failed: ${error}`);
             throw error;
         }
     }
@@ -395,6 +422,7 @@ class SimliClient {
             const [protocol, baseUri] = this.getWebSocketUrl();
             const ws = new WebSocket(`${protocol}://${baseUri}/StartWebRTCSession`);
             this.webSocket = ws;
+            this.setupWebSocketListeners(ws);
 
             let wsConnectResolve: () => void;
             const wsConnectPromise = new Promise<void>((resolve) => {
@@ -403,7 +431,19 @@ class SimliClient {
 
             ws.addEventListener("open", async () => {
                 ws.send(JSON.stringify(this.pc?.localDescription));
-                await this.initializeSession();
+                const metadata: SimliSessionRequest = {
+                    avatarId: this.avatarId,
+                    isJPG: false,
+                    syncAudio: true,
+                    handleSilence: this.handleSilence,
+                    maxSessionLength: this.maxSessionLength,
+                    maxIdleTime: this.maxIdleTime,
+                };
+                if (!this.session_token || this.session_token === "") {
+                    await this.sendSessionToken((await this.createSessionToken(metadata)).session_token)
+                } else {
+                    await this.sendSessionToken(this.session_token);
+                }
                 this.startDataChannelInterval();
                 wsConnectResolve();
             });
@@ -482,7 +522,7 @@ class SimliClient {
             ]);
 
         } catch (error) {
-            this.handleConnectionFailure(`SIMLI: Negotiation failed: ${error}`);
+            await this.handleConnectionFailure(`SIMLI: Negotiation failed: ${error}`);
             throw error;
         }
     }
@@ -516,15 +556,15 @@ class SimliClient {
         });
     }
 
-    private handleConnectionFailure(reason: string) {
+    private async handleConnectionFailure(reason: string) {
         this.errorReason = reason;
         if (this.enableConsoleLogs) console.error("SIMLI: connection failure:", reason);
         this.emit("failed", reason);
-        this.cleanup();
+        await this.cleanup();
     }
 
-    private handleConnectionTimeout() {
-        this.handleConnectionFailure("Connection timed out");
+    private async handleConnectionTimeout() {
+        await this.handleConnectionFailure("Connection timed out");
     }
 
     private handleDisconnection() {
@@ -618,9 +658,9 @@ class SimliClient {
                     throw new Error("SIMLI: AudioWorklet not initialized");
                 }
                 this.sourceNode.connect(this.audioWorklet);
-                this.audioWorklet.port.onmessage = (event) => {
+                this.audioWorklet.port.onmessage = async (event) => {
                     if (event.data.type === "audioData") {
-                        this.sendAudioData(new Uint8Array(event.data.data.buffer));
+                        await this.sendAudioData(new Uint8Array(event.data.data.buffer));
                     }
                 };
             })
@@ -630,7 +670,7 @@ class SimliClient {
             });
     }
 
-    sendAudioData(audioData: Uint8Array) {
+    async sendAudioData(audioData: Uint8Array) {
         if (!this.sessionInitialized) {
             if (this.enableConsoleLogs) console.log("SIMLI: Session not initialized. Ignoring audio data.");
             return;
@@ -658,16 +698,16 @@ class SimliClient {
             this.lastSendTime = currentTime;
         } catch (error) {
             if (this.enableConsoleLogs) console.error("SIMLI: Failed to send audio data:", error);
-            this.handleConnectionFailure("Failed to send audio data");
+            await this.handleConnectionFailure("Failed to send audio data");
         }
     }
 
-    close() {
+    async close() {
         if (this.enableConsoleLogs) console.log("SIMLI: Closing SimliClient connection");
         this.emit("disconnected");
 
         try {
-            this.cleanup();
+            await this.cleanup();
         } catch (error) {
             if (this.enableConsoleLogs) console.error("SIMLI: Error during cleanup:", error);
         }
@@ -709,6 +749,19 @@ class SimliClient {
         };
     }
 
+    private setupWebSocketListeners(ws: WebSocket) {
+        ws.addEventListener("error", (error) => {
+            if (this.enableConsoleLogs) console.error("SIMLI: WebSocket error:", error);
+            this.emit("disconnected");
+            this.handleConnectionFailure("WebSocket error").then().catch(console.error);
+        });
+
+        ws.addEventListener("close", () => {
+            if (this.enableConsoleLogs) console.warn("SIMLI: WebSocket closed");
+            this.emit("disconnected");
+        });
+    }
+
     private getWebSocketUrl(): [string, string] {
         let url = this.SimliURL;
         const parsedUrl = new URL(url);
@@ -719,4 +772,3 @@ class SimliClient {
 }
 
 export {SimliClient, SimliClientConfig, SimliClientEvents};
-
