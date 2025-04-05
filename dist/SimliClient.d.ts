@@ -5,7 +5,6 @@ interface SimliClientConfig {
     maxIdleTime: number;
     videoRef: HTMLVideoElement;
     audioRef: HTMLAudioElement;
-    enableConsoleLogs?: boolean;
     SimliURL: string | "";
 }
 interface SimliSessionRequest {
@@ -54,7 +53,6 @@ declare class SimliClient {
     private readonly CONNECTION_TIMEOUT_MS;
     private SimliURL;
     isAvatarSpeaking: boolean;
-    enableConsoleLogs: boolean;
     private events;
     on<K extends keyof SimliClientEvents>(event: K, callback: SimliClientEvents[K]): void;
     off<K extends keyof SimliClientEvents>(event: K, callback: SimliClientEvents[K]): void;
