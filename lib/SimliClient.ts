@@ -46,7 +46,6 @@ type EventMap = Map<string, Set<EventCallback>>;
 
 interface SimliClientConfig {
     apiKey?: string;
-    faceID: string;
     handleSilence: boolean;
     maxSessionLength: number;
     maxIdleTime: number;
@@ -55,6 +54,8 @@ interface SimliClientConfig {
     audioRef: HTMLAudioElement;
     enableConsoleLogs?: boolean;
     SimliURL?: string;
+    token?: string | null;
+    ticket?: string | null;
     maxRetryAttempts?: number | 100;
     retryDelay_ms?: number | 2000;
     videoReceivedTimeout?: number | 15000;
@@ -63,7 +64,6 @@ interface SimliClientConfig {
 }
 
 interface SimliSessionRequest {
-    faceId: string;
     isJPG: boolean;
     apiKey?: string;
     syncAudio: boolean;
@@ -89,7 +89,8 @@ class SimliClient {
     private pc: Room | null = null;
     private apiKey?: string;
     private session_token?: string;
-    private faceID: string = "";
+    private token?: string | null;
+    private ticket?: string | null;
     private handleSilence: boolean = true;
     private videoRef: HTMLVideoElement | null = null;
     private audioRef: HTMLAudioElement | null = null;
@@ -149,15 +150,14 @@ class SimliClient {
     }
 
     public Initialize(config: SimliClientConfig) {
-        if (!config.apiKey && !config.session_token) {
-            console.error(
-                "SIMLI: apiKey or session_token is required in config"
-            );
-            throw new Error("apiKey or session_token is required in config");
-        }
-        this.config = config;
         this.apiKey = config.apiKey;
-        this.faceID = config.faceID;
+        this.handleSilence = config.handleSilence;
+        this.maxSessionLength = config.maxSessionLength;
+        this.maxIdleTime = config.maxIdleTime;
+        this.enableConsoleLogs = config.enableConsoleLogs ?? false;
+        this.session_token = config.session_token;
+        this.token = config.token;
+        this.ticket = config.ticket;
         this.handleSilence = config.handleSilence;
         this.maxSessionLength = config.maxSessionLength;
         this.maxIdleTime = config.maxIdleTime;
@@ -238,7 +238,6 @@ class SimliClient {
 
             if (!this.session_token) {
                 const metadata = {
-                    faceId: this.faceID,
                     isJPG: false,
                     apiKey: this.apiKey,
                     syncAudio: true,
@@ -250,8 +249,13 @@ class SimliClient {
                 const sessionRunData = await this.createSessionToken(this.SimliURL, metadata);
                 this.session_token = sessionRunData.session_token;
             }
+
+            let parameter = "";
+            if (this.ticket)
+                parameter = `?token=${this.ticket}`
+
             const url = `${this.SimliWSURL}/StartWebRTCSessionLivekit`;
-            const ws = new WebSocket(url);
+            const ws = new WebSocket(url + parameter);
             this.webSocket = ws;
             const wsConnectPromise = new Promise<void>((resolve, reject) => {
                 if (this.webSocket) {
@@ -335,6 +339,7 @@ class SimliClient {
                 body: JSON.stringify(metadata),
                 headers: {
                     "Content-Type": "application/json",
+                    ...(this.token && {"Authorization": `Bearer ${this.token}`}),
                 },
             });
 
@@ -626,7 +631,6 @@ class SimliClient {
             connectionSuccessResolve();
             if (!this.session_token) {
                 const metadata = {
-                    faceId: this.faceID,
                     isJPG: false,
                     apiKey: this.apiKey,
                     syncAudio: true,
@@ -666,7 +670,6 @@ class SimliClient {
                 } else if (evt.data === "MISSING_SESSION_TOKEN") {
                     if (!this.session_token || this.session_token === "") {
                         const metadata = {
-                            faceId: this.faceID,
                             isJPG: false,
                             apiKey: this.apiKey,
                             syncAudio: true,
