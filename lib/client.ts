@@ -68,13 +68,15 @@ type session_token = string;
 async function generateSimliSessionToken(
     request: TokenRequestData,
     SimliURL: string = "https://api.simli.ai",
+    token: string | null = null,
 ): Promise<SimliSessionToken> {
     const url = `${SimliURL}/compose/token`;
     const response = await fetch(url, {
         method: "POST",
         body: JSON.stringify(request.config),
         headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            ...(token && {"Authorization": `Bearer ${token}`}),
         },
     });
 
@@ -88,7 +90,7 @@ async function generateSimliSessionToken(
 }
 
 async function generateIceServers(
-    SimliURL: string = "https://api.simli.ai",
+    SimliURL: string = "https://api.simli.ai"
 ): Promise<RTCIceServer[]> {
     try {
         const url = `${SimliURL}/compose/ice`;
