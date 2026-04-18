@@ -1,7 +1,7 @@
-import { WebSocketSignaling } from "../Signaling/WebSocketSignaling";
-import { SimliClientEvents } from "../Events";
-import { BaseTransport, EventCallback, EventMap, handleMessage, register_destination } from "./BaseTransport";
-import { Logger } from "../Logger";
+import {WebSocketSignaling} from "../signaling/WebSocketSignaling";
+import {SimliClientEvents} from "../events";
+import {BaseTransport, EventCallback, EventMap, handleMessage, register_destination} from "./BaseTransport";
+import {Logger} from "../Logger";
 
 class P2PTransport implements BaseTransport {
     videoElementAnchor: HTMLVideoElement
@@ -16,6 +16,7 @@ class P2PTransport implements BaseTransport {
     private iceTimeout: NodeJS.Timeout | null = null;
     private websocketPromise: Promise<unknown>;
     private websocketReject: ((reason: string) => void) | null = null;
+
     constructor(
         simliBaseWSURL: string,
         session_token: string,
@@ -44,7 +45,9 @@ class P2PTransport implements BaseTransport {
                 })
             }
         )
-        this.signalingConnection.wsConnection.onmessage = (message) => { handleMessage(this, message) }
+        this.signalingConnection.wsConnection.onmessage = (message) => {
+            handleMessage(this, message)
+        }
         this.signalingConnection.wsConnection.onerror = (evt) => {
             this.emit("startup_error", "Websocket Failed");
             if (this.websocketReject) {
@@ -69,6 +72,7 @@ class P2PTransport implements BaseTransport {
             direction: "recvonly",
         })
     }
+
     public on<K extends keyof SimliClientEvents>(
         event: K,
         callback: SimliClientEvents[K]
@@ -93,13 +97,13 @@ class P2PTransport implements BaseTransport {
         this.events.get(event)?.forEach((callback) => {
             try {
                 callback(...args);
-            }
-            catch {
+            } catch {
                 this.logger.error("CALLBACK FAILED: " + callback.name)
             }
         });
 
     }
+
     async connect() {
 
         const offer = await this.pc.createOffer();
@@ -117,8 +121,7 @@ class P2PTransport implements BaseTransport {
         this.logger.info("Disconnecting")
         try {
             this.signalingConnection.sendSignal("DONE")
-        }
-        catch {
+        } catch {
             this.logger.error("FAILED TO SEND FINAL MESSAGE")
         }
         try {
@@ -133,6 +136,7 @@ class P2PTransport implements BaseTransport {
         }
 
     }
+
     private async registerPeerInfo(serialized_info: string) {
         const info = JSON.parse(serialized_info)
         if (info.sdp && info.type == "answer") {
@@ -196,4 +200,4 @@ class P2PTransport implements BaseTransport {
     }
 }
 
-export { P2PTransport }
+export {P2PTransport}

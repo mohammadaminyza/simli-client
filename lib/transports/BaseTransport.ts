@@ -1,6 +1,6 @@
-import { SimliClientEvents } from "../Events";
-import { Logger } from "../Logger";
-import { BaseSignaling } from "../Signaling/BaseSignaling";
+import {SimliClientEvents} from "../events";
+import {Logger} from "../Logger";
+import {BaseSignaling} from "../signaling/BaseSignaling";
 
 type EventCallback = (...args: any[]) => void;
 type EventMap = Map<string, Set<EventCallback>>;
@@ -12,8 +12,11 @@ interface BaseTransport {
     session_token: string
     events: EventMap;
     logger: Logger;
+
     connect(): Promise<void>;
+
     disconnect(): void;
+
     on<K extends keyof SimliClientEvents>(
         event: K,
         callback: SimliClientEvents[K]
@@ -36,6 +39,7 @@ function register_destination(logger: Logger, serialized_info: string) {
     logger.destination = parsed.destination
     logger.session_id = parsed.session_id
 }
+
 async function handleMessage(transport: BaseTransport, message: MessageEvent): Promise<void> {
     const firstToken = (message.data as string).toUpperCase().split(" ")[0]
     switch (firstToken) {
@@ -85,7 +89,7 @@ async function handleMessage(transport: BaseTransport, message: MessageEvent): P
     }
 }
 
-export { handleMessage, register_destination };
+export {handleMessage, register_destination};
 export type {
     BaseTransport, EventCallback, EventMap
 };

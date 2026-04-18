@@ -1,8 +1,16 @@
-import { RemoteParticipant, RemoteTrack, RemoteTrackPublication, Room, RoomEvent, RoomOptions, Track } from "livekit-client";
-import { WebSocketSignaling } from "../Signaling/WebSocketSignaling";
-import { SimliClientEvents } from "../Events";
-import { BaseTransport, EventCallback, EventMap, handleMessage, register_destination } from "./BaseTransport";
-import { Logger } from "../Logger";
+import {
+    RemoteParticipant,
+    RemoteTrack,
+    RemoteTrackPublication,
+    Room,
+    RoomEvent,
+    RoomOptions,
+    Track
+} from "livekit-client";
+import {WebSocketSignaling} from "../signaling/WebSocketSignaling";
+import {SimliClientEvents} from "../events";
+import {BaseTransport, EventCallback, EventMap, handleMessage, register_destination} from "./BaseTransport";
+import {Logger} from "../Logger";
 
 class LivekitTransport implements BaseTransport {
     videoElementAnchor: HTMLVideoElement
@@ -14,6 +22,7 @@ class LivekitTransport implements BaseTransport {
     events: EventMap = new Map()
     private websocketPromise: Promise<unknown>;
     private websocketReject: ((reason: string) => void) | null = null;
+
     constructor(
         simliBaseWSURL: string,
         session_token: string,
@@ -39,7 +48,9 @@ class LivekitTransport implements BaseTransport {
                 })
             }
         )
-        this.signalingConnection.wsConnection.onmessage = (message) => { handleMessage(this, message) }
+        this.signalingConnection.wsConnection.onmessage = (message) => {
+            handleMessage(this, message)
+        }
         this.signalingConnection.wsConnection.onerror = (evt) => {
             this.emit("startup_error", "Websocket Failed");
             if (this.websocketReject) {
@@ -47,13 +58,14 @@ class LivekitTransport implements BaseTransport {
                 this.websocketReject = null; // Prevent multiple rejections
             }
         }
-        const options: RoomOptions = { adaptiveStream: true, dynacast: true }
+        const options: RoomOptions = {adaptiveStream: true, dynacast: true}
         this.pc = new Room(options);
         this.on("connection_info", (serialized_info) => this.join_lk_room(serialized_info))
         this.videoElementAnchor = videoElementAnchor
         this.audioElementAnchor = audioElementAnchor
 
     }
+
     public on<K extends keyof SimliClientEvents>(
         event: K,
         callback: SimliClientEvents[K]
@@ -95,8 +107,7 @@ class LivekitTransport implements BaseTransport {
         this.logger.info("Disconnecting")
         try {
             this.signalingConnection.sendSignal("DONE")
-        }
-        catch {
+        } catch {
             this.logger.error("FAILED TO SEND FINAL MESSAGE")
         }
         try {
@@ -122,6 +133,7 @@ class LivekitTransport implements BaseTransport {
             this.emit("error", "Invalid Join Info, Contact Simli For Support")
         }
     }
+
     private setupConnectionStateHandler() {
         this.pc.on(RoomEvent.Disconnected, () => {
             this.disconnect();
@@ -130,8 +142,8 @@ class LivekitTransport implements BaseTransport {
         this.pc.on(RoomEvent.Connected, () => {
         })
         this.pc.on(RoomEvent.TrackSubscribed, (track: RemoteTrack,
-            publication: RemoteTrackPublication,
-            participant: RemoteParticipant,
+                                               publication: RemoteTrackPublication,
+                                               participant: RemoteParticipant,
         ) => {
             this.logger.debug("Track Received: " + track.kind)
             if (track.kind === Track.Kind.Video) {
@@ -148,4 +160,4 @@ class LivekitTransport implements BaseTransport {
 
 }
 
-export { LivekitTransport }
+export {LivekitTransport}

@@ -1,9 +1,9 @@
 // src/index.ts
-import { SimliClientEvents } from './Events';
-import { BaseTransport, EventCallback, EventMap } from './Transports/BaseTransport';
-import { LivekitTransport } from './Transports/LivekitTransport';
-import { P2PTransport } from './Transports/P2PTransport';
-import { Logger, LogLevel } from './Logger';
+import {SimliClientEvents} from './events';
+import {BaseTransport, EventCallback, EventMap} from './transports/BaseTransport';
+import {LivekitTransport} from './transports/LivekitTransport';
+import {P2PTransport} from './transports/P2PTransport';
+import {Logger, LogLevel} from './Logger';
 
 const AudioProcessor = (buffer: number) => {
     if (buffer <= 0) {
@@ -19,7 +19,7 @@ const AudioProcessor = (buffer: number) => {
             this.buffer = new Int16Array(${buffer});
             this.bufferIndex = 0;
         }
-
+ 
           process(inputs, outputs, parameters) {
             const input = inputs[0];
             const inputChannel = input[0];
@@ -27,7 +27,7 @@ const AudioProcessor = (buffer: number) => {
               for (let i = 0; i < inputChannel.length; i++) {
                 this.buffer[this.bufferIndex] = Math.max(-32768, Math.min(32767, Math.round(inputChannel[i] * 32767)));
                 this.bufferIndex++;
-
+ 
                 if (this.bufferIndex === this.buffer.length){
                   this.port.postMessage({type: 'audioData', data: this.buffer.slice(0, this.bufferIndex)});
                   this.bufferIndex = 0;
@@ -37,30 +37,33 @@ const AudioProcessor = (buffer: number) => {
             return true;
           }
         }
-
+ 
         registerProcessor('audio-processor', AudioProcessor);
-      `};
+      `
+};
 
-// Custom event handler types
+// ── Types ────────────────────────────────────────────────────────────────────
+
 interface SimliSessionRequest {
-    faceId: string;
     handleSilence: boolean;
     maxSessionLength: number;
     maxIdleTime: number;
     model?: "fasttalk" | "artalk";
 }
+
 interface TokenRequestData {
-    config: SimliSessionRequest
-    apiKey: string
+    config: SimliSessionRequest;
 }
 
 interface SimliSessionToken {
     session_token: string;
 }
 
-type TransportMode = "livekit" | "p2p"
-type SignalingMode = "websockets"
-type session_token = string
+type TransportMode = "livekit" | "p2p";
+type SignalingMode = "websockets";
+type session_token = string;
+
+// ── Helper functions ─────────────────────────────────────────────────────────
 
 async function generateSimliSessionToken(
     request: TokenRequestData,
@@ -71,8 +74,7 @@ async function generateSimliSessionToken(
         method: "POST",
         body: JSON.stringify(request.config),
         headers: {
-            "Content-Type": "application/json",
-            "x-simli-api-key": request.apiKey
+            "Content-Type": "application/json"
         },
     });
 
@@ -86,18 +88,16 @@ async function generateSimliSessionToken(
 }
 
 async function generateIceServers(
-    apiKey: string,
     SimliURL: string = "https://api.simli.ai",
 ): Promise<RTCIceServer[]> {
     try {
         const url = `${SimliURL}/compose/ice`;
         const response: any = await fetch(url, {
             headers: {
-                "Content-Type": "application/json",
-                "x-simli-api-key": apiKey,
+                "Content-Type": "application/json"
             },
             method: "GET",
-        })
+        });
 
         if (!response.ok) {
             throw new Error(`SIMLI: HTTP error! status: ${response.status}`);
@@ -109,23 +109,30 @@ async function generateIceServers(
         }
         return iceServers;
     } catch (error) {
-        return [{ urls: ["stun:stun.l.google.com:19302"] }];
+        return [{urls: ["stun:stun.l.google.com:19302"]}];
     }
 }
 
+// ── SimliClient ───────────────────────────────────────────────────────────────
+
 class SimliClient {
+
+    // ── Public fields ──────────────────────────────────────────────────────
 
     session_token: string;
     transport: TransportMode = "livekit";
-    signaling: SignalingMode = "websockets"
-    videoElement: HTMLVideoElement
-    audioElement: HTMLAudioElement
-    audioBufferSize: number = 3000
-    private connection: BaseTransport
-    private connectionTimeout: NodeJS.Timeout
-    private connectionResolve: () => void
-    private connectionReject: (message: string) => void
-    private connectionPromise: Promise<void>
+    signaling: SignalingMode = "websockets";
+    videoElement: HTMLVideoElement;
+    audioElement: HTMLAudioElement;
+    audioBufferSize: number = 3000;
+
+    // ── Private fields ─────────────────────────────────────────────────────
+
+    private connection: BaseTransport;
+    private connectionTimeout: NodeJS.Timeout;
+    private connectionResolve: () => void;
+    private connectionReject: (message: string) => void;
+    private connectionPromise: Promise<void>;
     private sourceNode: MediaStreamAudioSourceNode | null = null;
     private audioWorklet: AudioWorkletNode | null = null;
     private readonly MAX_RETRY_ATTEMPTS = 10;
@@ -135,37 +142,15 @@ class SimliClient {
     private SimliWSURL: string = "wss://api.simli.ai";
     private audioContext: AudioContext = new (window.AudioContext ||
         (window as any).webkitAudioContext)({
-            sampleRate: 16000,
-        });
+        sampleRate: 16000,
+    });
     private logger: Logger;
     private iceServers: RTCIceServer[] | null;
     private persistent_events: EventMap;
     private failReason: string | null = null;
     private shouldStop: boolean = false;
 
-    // Type-safe event methods
-    public on<K extends keyof SimliClientEvents>(
-        event: K,
-        callback: SimliClientEvents[K]
-    ): void {
-        if (!this.persistent_events.has(event)) {
-            this.persistent_events.set(event, new Set());
-        }
-        this.persistent_events.get(event)?.add(callback as EventCallback);
-        this.logger.debug("Registered Callback for Event: " + event)
-        this.connection.on(event, callback)
-    }
-
-    public off<K extends keyof SimliClientEvents>(
-        event: K,
-        callback: SimliClientEvents[K],
-    ): void {
-        if (!this.persistent_events.has(event)) {
-            throw "Event Not Regsitered"
-        }
-        this.persistent_events.get(event)?.delete(callback as EventCallback);
-        this.connection.off(event, callback)
-    }
+    // ── Constructor ────────────────────────────────────────────────────────
 
     constructor(
         session_token: session_token,
@@ -187,14 +172,16 @@ class SimliClient {
         if (!(SimliWSURL.startsWith("ws://") || SimliWSURL.startsWith("wss://")) || SimliWSURL.endsWith("/")) {
             throw "Invalid Simli WS URL"
         }
-        this.session_token = session_token
-        this.transport = transport_mode
-        this.signaling = signaling
-        this.SimliWSURL = SimliWSURL
-        this.videoElement = videoElement
-        this.audioElement = audioElement
-        this.iceServers = iceServers
+
+        this.session_token = session_token;
+        this.transport = transport_mode;
+        this.signaling = signaling;
+        this.SimliWSURL = SimliWSURL;
+        this.videoElement = videoElement;
+        this.audioElement = audioElement;
+        this.iceServers = iceServers;
         this.logger = new Logger(logLevel);
+        this.persistent_events = new Map();
 
         let resolveFn: () => void;
         let rejectFn: () => void;
@@ -206,34 +193,154 @@ class SimliClient {
 
         this.connectionResolve = resolveFn!;
         this.connectionReject = rejectFn!;
-        this.persistent_events = new Map()
-        this.connectionTimeout = setTimeout(() => this.connectionReject("CONNECTION TIMED OUT"), this.CONNECTION_TIMEOUT_MS)
+        this.connectionTimeout = setTimeout(
+            () => this.connectionReject("CONNECTION TIMED OUT"),
+            this.CONNECTION_TIMEOUT_MS,
+        );
 
-        switch (this.transport) {
-            case "livekit":
-                this.connection = new LivekitTransport(this.SimliWSURL, this.session_token, videoElement, audioElement, this.logger, this.connectionReject)
-                break;
-            case "p2p":
-                if (!iceServers || iceServers.length == 0) {
-                    throw "Ice Servers Required for P2P Mode"
-                }
-                this.connection = new P2PTransport(this.SimliWSURL, this.session_token, true, iceServers, videoElement, audioElement, this.logger, this.connectionReject)
-                break
-            default:
-                throw new Error("Not Implemented Yet")
+        this.connection = this.buildTransport(videoElement, audioElement, iceServers);
 
-        }
         this.connection.on("start", () => {
-            this.connectionResolve()
-            clearTimeout(this.connectionTimeout)
-        })
-        this.connection.on("unknown", (message) => this.logger.debug("UNKOWN MESSAGE FROM SERVER: " + message))
-        this.connection.on("error", (message) => { this.failReason = message; this.connectionReject(message) })
-
+            this.connectionResolve();
+            clearTimeout(this.connectionTimeout);
+        });
+        this.connection.on("unknown", (message) =>
+            this.logger.debug("UNKOWN MESSAGE FROM SERVER: " + message),
+        );
+        this.connection.on("error", (message) => {
+            this.failReason = message;
+            this.connectionReject(message);
+        });
     }
 
-    private resetConnections(videoElement: HTMLVideoElement, audioElement: HTMLAudioElement, iceServers: RTCIceServer[] | null) {
-        this.failReason = null
+    // ── Event methods ──────────────────────────────────────────────────────
+
+    public on<K extends keyof SimliClientEvents>(
+        event: K,
+        callback: SimliClientEvents[K],
+    ): void {
+        if (!this.persistent_events.has(event)) {
+            this.persistent_events.set(event, new Set());
+        }
+        this.persistent_events.get(event)?.add(callback as EventCallback);
+        this.logger.debug("Registered Callback for Event: " + event);
+        this.connection.on(event, callback);
+    }
+
+    public off<K extends keyof SimliClientEvents>(
+        event: K,
+        callback: SimliClientEvents[K],
+    ): void {
+        if (!this.persistent_events.has(event)) {
+            throw "Event Not Regsitered"
+        }
+        this.persistent_events.get(event)?.delete(callback as EventCallback);
+        this.connection.off(event, callback);
+    }
+
+    // ── Public API ─────────────────────────────────────────────────────────
+
+    async start(): Promise<void> {
+        if (this.shouldStop) {
+            throw new Error(
+                "Disconnect Already Called, Can't reuse same SimliClient multiple times create a new SimliClient Object",
+            );
+        }
+        try {
+            await this.connection.connect();
+            await this.connectionPromise;
+            this.retryAttempt = 0;
+        } catch (error) {
+            if (this.failReason) {
+                throw error;
+            }
+            if (this.retryAttempt >= this.MAX_RETRY_ATTEMPTS) {
+                throw new Error("Too Many Retry Attempts Failed to connect");
+            }
+            if (this.shouldStop) {
+                this.shouldStop = false;
+                throw new Error("Called Disconnect Before A Connecction succeeded");
+            }
+            this.logger.error("FAILED: " + error);
+            await this.connection.disconnect();
+            await new Promise((resolve) => setTimeout(resolve, this.RETRY_DELAY));
+            this.retryAttempt += 1;
+            if (this.retryAttempt > 2) {
+                this.transport = "livekit";
+            }
+            this.resetConnections(this.videoElement, this.audioElement, this.iceServers);
+            await this.start();
+        }
+    }
+
+    async stop(): Promise<void> {
+        this.shouldStop = true;
+        await this.connection.disconnect();
+    }
+
+    listenToMediastreamTrack(stream: MediaStreamTrack): void {
+        this.initializeAudioWorklet(this.audioContext, stream);
+    }
+
+    public ClearBuffer = (): void => {
+        this.connection.signalingConnection.sendSignal("SKIP");
+    };
+
+    sendAudioData(audioData: Uint8Array): void {
+        this.connection.signalingConnection.sendAudioData(audioData);
+    }
+
+    sendAudioDataImmediate(audioData: Uint8Array): void {
+        this.connection.signalingConnection.sendAudioDataImmediate(audioData);
+    }
+
+    // ── Private helpers ────────────────────────────────────────────────────
+
+    /**
+     * Your customization: extracted shared transport-construction logic into a
+     * helper so both the constructor and resetConnections stay DRY.
+     */
+    private buildTransport(
+        videoElement: HTMLVideoElement,
+        audioElement: HTMLAudioElement,
+        iceServers: RTCIceServer[] | null,
+    ): BaseTransport {
+        switch (this.transport) {
+            case "livekit":
+                return new LivekitTransport(
+                    this.SimliWSURL,
+                    this.session_token,
+                    videoElement,
+                    audioElement,
+                    this.logger,
+                    this.connectionReject,
+                );
+            case "p2p":
+                if (!iceServers || iceServers.length === 0) {
+                    throw "Ice Servers Required for P2P Mode"
+                }
+                return new P2PTransport(
+                    this.SimliWSURL,
+                    this.session_token,
+                    true,
+                    iceServers,
+                    videoElement,
+                    audioElement,
+                    this.logger,
+                    this.connectionReject,
+                );
+            default:
+                throw new Error("Not Implemented Yet");
+        }
+    }
+
+    private resetConnections(
+        videoElement: HTMLVideoElement,
+        audioElement: HTMLAudioElement,
+        iceServers: RTCIceServer[] | null,
+    ): void {
+        this.failReason = null;
+
         let resolveFn: () => void;
         let rejectFn: () => void;
 
@@ -244,77 +351,37 @@ class SimliClient {
 
         this.connectionResolve = resolveFn!;
         this.connectionReject = rejectFn!;
-        this.connectionTimeout = setTimeout(() => this.connectionReject("Connection Timed Out"), this.CONNECTION_TIMEOUT_MS)
+        this.connectionTimeout = setTimeout(
+            () => this.connectionReject("Connection Timed Out"),
+            this.CONNECTION_TIMEOUT_MS,
+        );
 
-        switch (this.transport) {
-            case "livekit":
-                this.connection = new LivekitTransport(this.SimliWSURL, this.session_token, videoElement, audioElement, this.logger, this.connectionReject)
-                break;
-            case "p2p":
-                if (!iceServers || iceServers.length == 0) {
-                    throw "Ice Servers Required for P2P Mode"
-                }
-                this.connection = new P2PTransport(this.SimliWSURL, this.session_token, true, iceServers, videoElement, audioElement, this.logger, this.connectionReject)
-                break
-            default:
-                throw new Error("Not Implemented Yet")
+        this.connection = this.buildTransport(videoElement, audioElement, iceServers);
 
-        }
         this.connection.on("start", () => {
-            this.connectionResolve()
-            clearTimeout(this.connectionTimeout)
-        })
-        this.connection.on("error", (message) => { this.retryAttempt = this.MAX_RETRY_ATTEMPTS; this.connectionReject(message) })
-        this.connection.on("unknown", (message) => this.logger.debug("UNKOWN MESSAGE FROM SERVER: " + message))
-        // Re-register all user event handlers on the new connection
+            this.connectionResolve();
+            clearTimeout(this.connectionTimeout);
+        });
+        this.connection.on("error", (message) => {
+            this.retryAttempt = this.MAX_RETRY_ATTEMPTS;
+            this.connectionReject(message);
+        });
+        this.connection.on("unknown", (message) =>
+            this.logger.debug("UNKOWN MESSAGE FROM SERVER: " + message),
+        );
+
+        // Re-register all persistent user event handlers on the new connection
         this.persistent_events.forEach((callbacks, event) => {
             callbacks.forEach((callback) => {
                 this.connection.on(event as keyof SimliClientEvents, callback);
             });
         });
     }
-    async start(): Promise<void> {
-        if (this.shouldStop) {
-            throw new Error("Disconnect Already Called, Can't reuse same SimliClient multiple times create a new SimliClient Object")
-        }
-        try {
-            await this.connection.connect()
-            await this.connectionPromise
-            this.retryAttempt = 0
-        } catch (error) {
-            if (this.failReason) {
-                throw error
-            }
-            if (this.retryAttempt >= this.MAX_RETRY_ATTEMPTS)
-                throw new Error("Too Many Retry Attempts Failed to connect")
-            if (this.shouldStop) {
-                this.shouldStop = false
-                throw new Error("Called Disconnect Before A Connecction succeeded")
-            }
-            this.logger.error("FAILED: " + error)
-            await this.connection.disconnect()
-            await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY));
-            this.retryAttempt += 1
-            if (this.retryAttempt > 2)
-                this.transport = "livekit"
-            this.resetConnections(this.videoElement, this.audioElement, this.iceServers)
-            await this.start()
-        }
-    }
-
-    async stop() {
-        this.shouldStop = true
-        await this.connection.disconnect()
-    }
-
-    listenToMediastreamTrack(stream: MediaStreamTrack) {
-        this.initializeAudioWorklet(this.audioContext, stream);
-    }
 
     private initializeAudioWorklet(
         audioContext: AudioContext,
         stream: MediaStreamTrack,
-    ) {
+    ): void {
         audioContext.audioWorklet
             .addModule(
                 URL.createObjectURL(
@@ -324,10 +391,7 @@ class SimliClient {
                 ),
             )
             .then(() => {
-                this.audioWorklet = new AudioWorkletNode(
-                    audioContext,
-                    "audio-processor",
-                );
+                this.audioWorklet = new AudioWorkletNode(audioContext, "audio-processor");
                 this.sourceNode = audioContext.createMediaStreamSource(
                     new MediaStream([stream]),
                 );
@@ -337,25 +401,14 @@ class SimliClient {
                 this.sourceNode.connect(this.audioWorklet);
                 this.audioWorklet.port.onmessage = (event) => {
                     if (event.data.type === "audioData") {
-                        this.connection.signalingConnection.sendAudioData(new Uint8Array(event.data.data.buffer));
+                        this.connection.signalingConnection.sendAudioData(
+                            new Uint8Array(event.data.data.buffer),
+                        );
                     }
                 };
-            })
+            });
     }
-
-
-    public ClearBuffer = () => {
-        this.connection.signalingConnection.sendSignal("SKIP");
-    };
-    sendAudioData(audioData: Uint8Array) {
-        this.connection.signalingConnection.sendAudioData(audioData);
-    }
-
-    sendAudioDataImmediate(audioData: Uint8Array) {
-        this.connection.signalingConnection.sendAudioDataImmediate(audioData);
-    }
-
 }
 
-export { SimliClient, generateSimliSessionToken, generateIceServers, Logger, LogLevel }
-export type { SimliSessionRequest };
+export {SimliClient, generateSimliSessionToken, generateIceServers, Logger, LogLevel};
+export type {SimliSessionRequest};
